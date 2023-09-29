@@ -5,7 +5,7 @@ use crossterm::{
 };
 use rand::{distributions::Alphanumeric, prelude::*};
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{fs, sync::mpsc::Receiver, thread::JoinHandle};
 use std::io;
 use std::sync::mpsc;
 use std::thread;
@@ -61,12 +61,12 @@ impl From<MenuItem> for usize {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn io_handler() -> (Receiver<Event<event::KeyEvent>>,JoinHandle<()>) {
     enable_raw_mode().expect("can run in raw mode");
-
     let (tx, rx) = mpsc::channel();
     let tick_rate = Duration::from_millis(200);
-    thread::spawn(move || {
+
+    let jh : JoinHandle<()> = thread::spawn(move || {
         let mut last_tick = Instant::now();
         loop {
             let timeout = tick_rate
@@ -80,12 +80,93 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             if last_tick.elapsed() >= tick_rate {
-                if let Ok(_) = tx.send(Event::Tick) {
+                #[allow(clippy:collapsible_if)]
+                if tx.send(Event::Tick).is_ok() {
                     last_tick = Instant::now();
                 }
             }
         }
     });
+    (rx,jh)
+}
+
+fn render(terminal: &mut Terminal<CrosstermBackend<io::Stdout>> ,
+    menu_titles : &[&str],
+    active_menu_item : MenuItem,
+    pet_list_state: &mut ListState
+    )-> Result<(), Box<dyn std::error::Error>> {
+    terminal.draw(|rect| {
+        let size = rect.size();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(2)
+            .constraints(
+                [
+                    Constraint::Length(3),
+                    Constraint::Min(2),
+                    Constraint::Length(3),
+                ]
+                .as_ref(),
+            )
+            .split(size);
+
+        let copyright = Paragraph::new("pet-CLI 2020 - all rights reserved")
+            .style(Style::default().fg(Color::LightCyan))
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::White))
+                    .title("Copyright")
+                    .border_type(BorderType::Plain),
+            );
+
+        let menu = menu_titles
+            .iter()
+            .map(|t| {
+                let (first, rest) = t.split_at(1);
+                Spans::from(vec![
+                    Span::styled(
+                        first,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::UNDERLINED),
+                    ),
+                    Span::styled(rest, Style::default().fg(Color::White)),
+                ])
+            })
+            .collect();
+
+        let tabs = Tabs::new(menu)
+            .select(active_menu_item.into())
+            .block(Block::default().title("Menu").borders(Borders::ALL))
+            .style(Style::default().fg(Color::White))
+            .highlight_style(Style::default().fg(Color::Yellow))
+            .divider(Span::raw("|"));
+
+        rect.render_widget(tabs, chunks[0]);
+        match active_menu_item {
+            MenuItem::Home => rect.render_widget(render_home(), chunks[1]),
+            MenuItem::Pets => {
+                let pets_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(
+                        [Constraint::Percentage(20), Constraint::Percentage(80)].as_ref(),
+                    )
+                    .split(chunks[1]);
+                let (left, right) = render_pets(pet_list_state);
+                rect.render_stateful_widget(left, pets_chunks[0], pet_list_state);
+                rect.render_widget(right, pets_chunks[1]);
+            }
+        }
+        rect.render_widget(copyright, chunks[2]);
+    })?;
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+    let (rx,_join_handle) = io_handler();
 
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
@@ -98,77 +179,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pet_list_state.select(Some(0));
 
     loop {
-        terminal.draw(|rect| {
-            let size = rect.size();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(2)
-                .constraints(
-                    [
-                        Constraint::Length(3),
-                        Constraint::Min(2),
-                        Constraint::Length(3),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
-
-            let copyright = Paragraph::new("pet-CLI 2020 - all rights reserved")
-                .style(Style::default().fg(Color::LightCyan))
-                .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .style(Style::default().fg(Color::White))
-                        .title("Copyright")
-                        .border_type(BorderType::Plain),
-                );
-
-            let menu = menu_titles
-                .iter()
-                .map(|t| {
-                    let (first, rest) = t.split_at(1);
-                    Spans::from(vec![
-                        Span::styled(
-                            first,
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::UNDERLINED),
-                        ),
-                        Span::styled(rest, Style::default().fg(Color::White)),
-                    ])
-                })
-                .collect();
-
-            let tabs = Tabs::new(menu)
-                .select(active_menu_item.into())
-                .block(Block::default().title("Menu").borders(Borders::ALL))
-                .style(Style::default().fg(Color::White))
-                .highlight_style(Style::default().fg(Color::Yellow))
-                .divider(Span::raw("|"));
-
-            rect.render_widget(tabs, chunks[0]);
-            match active_menu_item {
-                MenuItem::Home => rect.render_widget(render_home(), chunks[1]),
-                MenuItem::Pets => {
-                    let pets_chunks = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints(
-                            [Constraint::Percentage(20), Constraint::Percentage(80)].as_ref(),
-                        )
-                        .split(chunks[1]);
-                    let (left, right) = render_pets(&pet_list_state);
-                    rect.render_stateful_widget(left, pets_chunks[0], &mut pet_list_state);
-                    rect.render_widget(right, pets_chunks[1]);
-                }
-            }
-            rect.render_widget(copyright, chunks[2]);
-        })?;
+       
+        render(&mut terminal, &menu_titles, active_menu_item, &mut pet_list_state)?;
 
         match rx.recv()? {
             Event::Input(event) => match event.code {
                 KeyCode::Char('q') => {
                     disable_raw_mode()?;
+                    terminal.clear()?;
                     terminal.show_cursor()?;
                     break;
                 }
@@ -339,7 +357,7 @@ fn add_random_pet_to_db() -> Result<Vec<Pet>, Error> {
     };
 
     parsed.push(random_pet);
-    fs::write(DB_PATH, &serde_json::to_vec(&parsed)?)?;
+    fs::write(DB_PATH, serde_json::to_vec(&parsed)?)?;
     Ok(parsed)
 }
 
@@ -348,8 +366,8 @@ fn remove_pet_at_index(pet_list_state: &mut ListState) -> Result<(), Error> {
         let db_content = fs::read_to_string(DB_PATH)?;
         let mut parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
         parsed.remove(selected);
-        fs::write(DB_PATH, &serde_json::to_vec(&parsed)?)?;
-        let amount_pets = read_db().expect("can fetch pet list").len();
+        fs::write(DB_PATH, serde_json::to_vec(&parsed)?)?;
+        let _amount_pets = read_db().expect("can fetch pet list").len();
         if selected > 0 {
             pet_list_state.select(Some(selected - 1));
         } else {
