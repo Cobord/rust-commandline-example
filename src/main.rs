@@ -5,11 +5,11 @@ use crossterm::{
 };
 use rand::{distributions::Alphanumeric, prelude::*};
 use serde::{Deserialize, Serialize};
-use std::{fs, sync::mpsc::Receiver, thread::JoinHandle};
 use std::io;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, sync::mpsc::Receiver, thread::JoinHandle};
 use thiserror::Error;
 use tui::{
     backend::CrosstermBackend,
@@ -61,12 +61,12 @@ impl From<MenuItem> for usize {
     }
 }
 
-fn io_handler() -> (Receiver<Event<event::KeyEvent>>,JoinHandle<()>) {
+fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
     enable_raw_mode().expect("can run in raw mode");
     let (tx, rx) = mpsc::channel();
     let tick_rate = Duration::from_millis(200);
 
-    let jh : JoinHandle<()> = thread::spawn(move || {
+    let jh: JoinHandle<()> = thread::spawn(move || {
         let mut last_tick = Instant::now();
         loop {
             let timeout = tick_rate
@@ -87,14 +87,15 @@ fn io_handler() -> (Receiver<Event<event::KeyEvent>>,JoinHandle<()>) {
             }
         }
     });
-    (rx,jh)
+    (rx, jh)
 }
 
-fn render(terminal: &mut Terminal<CrosstermBackend<io::Stdout>> ,
-    menu_titles : &[&str],
-    active_menu_item : MenuItem,
-    pet_list_state: &mut ListState
-    )-> Result<(), Box<dyn std::error::Error>> {
+fn render(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    menu_titles: &[&str],
+    active_menu_item: MenuItem,
+    pet_list_state: &mut ListState,
+) -> Result<(), Box<dyn std::error::Error>> {
     terminal.draw(|rect| {
         let size = rect.size();
         let chunks = Layout::default()
@@ -150,9 +151,7 @@ fn render(terminal: &mut Terminal<CrosstermBackend<io::Stdout>> ,
             MenuItem::Pets => {
                 let pets_chunks = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints(
-                        [Constraint::Percentage(20), Constraint::Percentage(80)].as_ref(),
-                    )
+                    .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
                     .split(chunks[1]);
                 let (left, right) = render_pets(pet_list_state);
                 rect.render_stateful_widget(left, pets_chunks[0], pet_list_state);
@@ -165,8 +164,7 @@ fn render(terminal: &mut Terminal<CrosstermBackend<io::Stdout>> ,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    let (rx,_join_handle) = io_handler();
+    let (rx, _join_handle) = io_handler();
 
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
@@ -179,8 +177,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pet_list_state.select(Some(0));
 
     loop {
-       
-        render(&mut terminal, &menu_titles, active_menu_item, &mut pet_list_state)?;
+        render(
+            &mut terminal,
+            &menu_titles,
+            active_menu_item,
+            &mut pet_list_state,
+        )?;
 
         match rx.recv()? {
             Event::Input(event) => match event.code {
