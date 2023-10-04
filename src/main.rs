@@ -171,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let menu_titles = vec!["Home", "Pets", "Add", "Delete", "Quit"];
+    let menu_titles = vec!["Home", "Pets", "Add", "Edit Name", "Delete", "Quit"];
     let mut active_menu_item = MenuItem::Home;
     let mut pet_list_state = ListState::default();
     pet_list_state.select(Some(0));
@@ -196,10 +196,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 KeyCode::Char('p') => active_menu_item = MenuItem::Pets,
                 KeyCode::Char('a') => {
                     add_random_pet_to_db().expect("can add new random pet");
-                }
+                },
                 KeyCode::Char('d') => {
                     remove_pet_at_index(&mut pet_list_state).expect("can remove pet");
-                }
+                },
                 KeyCode::Down => {
                     if let Some(selected) = pet_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             pet_list_state.select(Some(selected + 1));
                         }
                     }
-                }
+                },
                 KeyCode::Up => {
                     if let Some(selected) = pet_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
@@ -219,7 +219,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             pet_list_state.select(Some(amount_pets - 1));
                         }
                     }
-                }
+                },
+                KeyCode::Char('e') => {
+                    edit_pet_at_index(&mut pet_list_state, true, 0).expect("can edit pet");
+                },
+                KeyCode::Left => {
+                    edit_pet_at_index(&mut pet_list_state, false, -1).expect("can edit pet");
+                },
+                KeyCode::Right => {
+                    edit_pet_at_index(&mut pet_list_state, false, 1).expect("can edit pet");
+                },
                 _ => {}
             },
             Event::Tick => {}
@@ -241,7 +250,9 @@ fn render_home<'a>() -> Paragraph<'a> {
             Style::default().fg(Color::LightBlue),
         )]),
         Spans::from(vec![Span::raw("")]),
-        Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets and 'd' to delete the currently selected pet.")]),
+        Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets,")]),
+        Spans::from(vec![Span::raw("'e' to randomly edit the name of currently selected pet")]),
+        Spans::from(vec![Span::raw("and 'd' to delete the currently selected pet.")]),
     ])
     .alignment(Alignment::Center)
     .block(
@@ -355,7 +366,7 @@ fn add_random_pet_to_db() -> Result<Vec<Pet>, Error> {
         name: rng.sample_iter(Alphanumeric).take(10).collect(),
         category: catsdogs.to_owned(),
         age: rng.gen_range(1, 15),
-        created_at: Utc::now(),
+        created_at: Utc::now().round_subsecs(0),
     };
 
     parsed.push(random_pet);
@@ -375,6 +386,26 @@ fn remove_pet_at_index(pet_list_state: &mut ListState) -> Result<(), Error> {
         } else {
             pet_list_state.select(Some(0));
         }
+    }
+    Ok(())
+}
+
+fn edit_pet_at_index(pet_list_state: &mut ListState, name_change : bool, age_shift : i8) -> Result<(), Error> {
+    if let Some(selected) = pet_list_state.selected() {
+        let db_content = fs::read_to_string(DB_PATH)?;
+        let mut parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
+        let rng = rand::thread_rng();
+        if name_change {
+            let new_name = rng.sample_iter(Alphanumeric).take(10).collect();
+            parsed[selected].name = new_name;
+        }
+        if age_shift > 0 {
+            parsed[selected].age += age_shift as usize;
+        } else if age_shift < 0 {
+            parsed[selected].age = std::cmp::max(0,(parsed[selected].age as i8)+age_shift) as usize;
+        }
+        fs::write(DB_PATH, serde_json::to_vec(&parsed)?)?;
+        let _amount_pets = read_db().expect("can fetch pet list").len();
     }
     Ok(())
 }
