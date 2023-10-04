@@ -1,180 +1,40 @@
-use chrono::prelude::*;
-use crossterm::{
-    event::{self, Event as CEvent, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::KeyCode;
 use rand::{distributions::Alphanumeric, prelude::*};
-use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io;
-use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
-use std::{fs, sync::mpsc::Receiver, thread::JoinHandle};
 use thiserror::Error;
-use tui::{
-    backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, Tabs,
-    },
-    Terminal,
-};
+use tui::widgets::ListState;
 
-const DB_PATH: &str = "./data/db.json";
+mod data_row;
+use data_row::DataRow;
+
+mod pet;
+use pet::Pet;
+
+mod generic_tui;
+use generic_tui::*;
+
+pub const DB_PATH: &str = "./data/db.json";
 
 #[derive(Error, Debug)]
-pub enum Error {
+enum Error {
     #[error("error reading the DB file: {0}")]
     ReadDBError(#[from] io::Error),
     #[error("error parsing the DB file: {0}")]
     ParseDBError(#[from] serde_json::Error),
 }
 
-enum Event<I> {
-    Input(I),
-    Tick,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Pet {
-    id: usize,
-    name: String,
-    category: String,
-    age: usize,
-    created_at: DateTime<Utc>,
-}
-
-#[derive(Copy, Clone, Debug)]
-enum MenuItem {
-    Home,
-    Pets,
-}
-
-impl From<MenuItem> for usize {
-    fn from(input: MenuItem) -> usize {
-        match input {
-            MenuItem::Home => 0,
-            MenuItem::Pets => 1,
-        }
-    }
-}
-
-fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
-    enable_raw_mode().expect("can run in raw mode");
-    let (tx, rx) = mpsc::channel();
-    let tick_rate = Duration::from_millis(200);
-
-    let jh: JoinHandle<()> = thread::spawn(move || {
-        let mut last_tick = Instant::now();
-        loop {
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
-
-            if event::poll(timeout).expect("poll works") {
-                if let CEvent::Key(key) = event::read().expect("can read events") {
-                    tx.send(Event::Input(key)).expect("can send events");
-                }
-            }
-
-            if last_tick.elapsed() >= tick_rate {
-                #[allow(clippy:collapsible_if)]
-                if tx.send(Event::Tick).is_ok() {
-                    last_tick = Instant::now();
-                }
-            }
-        }
-    });
-    (rx, jh)
-}
-
-fn render(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    menu_titles: &[&str],
-    active_menu_item: MenuItem,
-    pet_list_state: &mut ListState,
-) -> Result<(), Box<dyn std::error::Error>> {
-    terminal.draw(|rect| {
-        let size = rect.size();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(2)
-            .constraints(
-                [
-                    Constraint::Length(3),
-                    Constraint::Min(2),
-                    Constraint::Length(3),
-                ]
-                .as_ref(),
-            )
-            .split(size);
-
-        let copyright = Paragraph::new("pet-CLI 2020 - all rights reserved")
-            .style(Style::default().fg(Color::LightCyan))
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::White))
-                    .title("Copyright")
-                    .border_type(BorderType::Plain),
-            );
-
-        let menu = menu_titles
-            .iter()
-            .map(|t| {
-                let (first, rest) = t.split_at(1);
-                Spans::from(vec![
-                    Span::styled(
-                        first,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::UNDERLINED),
-                    ),
-                    Span::styled(rest, Style::default().fg(Color::White)),
-                ])
-            })
-            .collect();
-
-        let tabs = Tabs::new(menu)
-            .select(active_menu_item.into())
-            .block(Block::default().title("Menu").borders(Borders::ALL))
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(Color::Yellow))
-            .divider(Span::raw("|"));
-
-        rect.render_widget(tabs, chunks[0]);
-        match active_menu_item {
-            MenuItem::Home => rect.render_widget(render_home(), chunks[1]),
-            MenuItem::Pets => {
-                let pets_chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
-                    .split(chunks[1]);
-                let (left, right) = render_pets(pet_list_state);
-                rect.render_stateful_widget(left, pets_chunks[0], pet_list_state);
-                rect.render_widget(right, pets_chunks[1]);
-            }
-        }
-        rect.render_widget(copyright, chunks[2]);
-    })?;
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (rx, _join_handle) = io_handler();
 
-    let stdout = io::stdout();
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
+    let mut terminal = get_terminal()?;
 
-    let menu_titles = vec!["Home", "Pets", "Add", "Edit Name", "Delete", "Quit"];
+    let menu_titles = Pet::menu_titles();
     let mut active_menu_item = MenuItem::Home;
-    let mut pet_list_state = ListState::default();
-    pet_list_state.select(Some(0));
+
+    let mut pet_list_state = get_data_list_state();
+
+    let mut loaded_pets = read_db().expect("can fetch pet list");
 
     loop {
         render(
@@ -182,24 +42,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &menu_titles,
             active_menu_item,
             &mut pet_list_state,
+            &loaded_pets,
         )?;
 
         match rx.recv()? {
             Event::Input(event) => match event.code {
                 KeyCode::Char('q') => {
-                    disable_raw_mode()?;
-                    terminal.clear()?;
-                    terminal.show_cursor()?;
+                    tui_cleanup(&mut terminal)?;
                     break;
                 }
                 KeyCode::Char('h') => active_menu_item = MenuItem::Home,
-                KeyCode::Char('p') => active_menu_item = MenuItem::Pets,
+                KeyCode::Char('p') => active_menu_item = MenuItem::Data,
                 KeyCode::Char('a') => {
-                    add_random_pet_to_db().expect("can add new random pet");
-                },
+                    loaded_pets = add_random_pet_to_db().expect("can add new random pet");
+                }
                 KeyCode::Char('d') => {
                     remove_pet_at_index(&mut pet_list_state).expect("can remove pet");
-                },
+                    loaded_pets = read_db().expect("can fetch pet list")
+                }
                 KeyCode::Down => {
                     if let Some(selected) = pet_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
@@ -209,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             pet_list_state.select(Some(selected + 1));
                         }
                     }
-                },
+                }
                 KeyCode::Up => {
                     if let Some(selected) = pet_list_state.selected() {
                         let amount_pets = read_db().expect("can fetch pet list").len();
@@ -219,16 +79,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             pet_list_state.select(Some(amount_pets - 1));
                         }
                     }
-                },
+                }
                 KeyCode::Char('e') => {
-                    edit_pet_at_index(&mut pet_list_state, true, 0).expect("can edit pet");
-                },
+                    if let Some(selected) = pet_list_state.selected() {
+                        let mut new_name = String::new();
+                        let change_loaded = |pet_list: &mut [Pet], idx: usize, new_str: &str| {
+                            pet_list[idx].name = new_str.to_string()
+                        };
+                        word_input(
+                            &rx,
+                            &mut new_name,
+                            &mut loaded_pets,
+                            selected,
+                            &mut terminal,
+                            &menu_titles,
+                            active_menu_item,
+                            &mut pet_list_state,
+                            change_loaded,
+                        )?;
+                        if new_name.is_empty() {
+                            let rng = rand::thread_rng();
+                            new_name = rng.sample_iter(Alphanumeric).take(10).collect();
+                        }
+                        edit_pet_at_index(&mut pet_list_state, Some(new_name), 0, &mut loaded_pets)
+                            .expect("can edit pet");
+                    }
+                }
                 KeyCode::Left => {
-                    edit_pet_at_index(&mut pet_list_state, false, -1).expect("can edit pet");
-                },
+                    edit_pet_at_index(&mut pet_list_state, None, -1, &mut loaded_pets)
+                        .expect("can edit pet");
+                }
                 KeyCode::Right => {
-                    edit_pet_at_index(&mut pet_list_state, false, 1).expect("can edit pet");
-                },
+                    edit_pet_at_index(&mut pet_list_state, None, 1, &mut loaded_pets)
+                        .expect("can edit pet");
+                }
                 _ => {}
             },
             Event::Tick => {}
@@ -238,114 +122,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn render_home<'a>() -> Paragraph<'a> {
-    let home = Paragraph::new(vec![
-        Spans::from(vec![Span::raw("")]),
-        Spans::from(vec![Span::raw("Welcome")]),
-        Spans::from(vec![Span::raw("")]),
-        Spans::from(vec![Span::raw("to")]),
-        Spans::from(vec![Span::raw("")]),
-        Spans::from(vec![Span::styled(
-            "pet-CLI",
-            Style::default().fg(Color::LightBlue),
-        )]),
-        Spans::from(vec![Span::raw("")]),
-        Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets,")]),
-        Spans::from(vec![Span::raw("'e' to randomly edit the name of currently selected pet")]),
-        Spans::from(vec![Span::raw("and 'd' to delete the currently selected pet.")]),
-    ])
-    .alignment(Alignment::Center)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::White))
-            .title("Home")
-            .border_type(BorderType::Plain),
-    );
-    home
-}
-
-fn render_pets<'a>(pet_list_state: &ListState) -> (List<'a>, Table<'a>) {
-    let pets = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::White))
-        .title("Pets")
-        .border_type(BorderType::Plain);
-
-    let pet_list = read_db().expect("can fetch pet list");
-    let items: Vec<_> = pet_list
-        .iter()
-        .map(|pet| {
-            ListItem::new(Spans::from(vec![Span::styled(
-                pet.name.clone(),
-                Style::default(),
-            )]))
-        })
-        .collect();
-
-    let selected_pet = pet_list
-        .get(
-            pet_list_state
-                .selected()
-                .expect("there is always a selected pet"),
-        )
-        .expect("exists")
-        .clone();
-
-    let list = List::new(items).block(pets).highlight_style(
-        Style::default()
-            .bg(Color::Yellow)
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD),
-    );
-
-    let pet_detail = Table::new(vec![Row::new(vec![
-        Cell::from(Span::raw(selected_pet.id.to_string())),
-        Cell::from(Span::raw(selected_pet.name)),
-        Cell::from(Span::raw(selected_pet.category)),
-        Cell::from(Span::raw(selected_pet.age.to_string())),
-        Cell::from(Span::raw(selected_pet.created_at.to_string())),
-    ])])
-    .header(Row::new(vec![
-        Cell::from(Span::styled(
-            "ID",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Name",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Category",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Age",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-        Cell::from(Span::styled(
-            "Created At",
-            Style::default().add_modifier(Modifier::BOLD),
-        )),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::White))
-            .title("Detail")
-            .border_type(BorderType::Plain),
-    )
-    .widths(&[
-        Constraint::Percentage(5),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
-        Constraint::Percentage(5),
-        Constraint::Percentage(20),
-    ]);
-
-    (list, pet_detail)
-}
-
 fn read_db() -> Result<Vec<Pet>, Error> {
     let db_content = fs::read_to_string(DB_PATH)?;
     let parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
@@ -353,21 +129,10 @@ fn read_db() -> Result<Vec<Pet>, Error> {
 }
 
 fn add_random_pet_to_db() -> Result<Vec<Pet>, Error> {
-    let mut rng = rand::thread_rng();
     let db_content = fs::read_to_string(DB_PATH)?;
     let mut parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
-    let catsdogs = match rng.gen_range(0, 1) {
-        0 => "cats",
-        _ => "dogs",
-    };
 
-    let random_pet = Pet {
-        id: rng.gen_range(0, 9999999),
-        name: rng.sample_iter(Alphanumeric).take(10).collect(),
-        category: catsdogs.to_owned(),
-        age: rng.gen_range(1, 15),
-        created_at: Utc::now().round_subsecs(0),
-    };
+    let random_pet = Pet::create_placeholder();
 
     parsed.push(random_pet);
     fs::write(DB_PATH, serde_json::to_vec(&parsed)?)?;
@@ -390,19 +155,29 @@ fn remove_pet_at_index(pet_list_state: &mut ListState) -> Result<(), Error> {
     Ok(())
 }
 
-fn edit_pet_at_index(pet_list_state: &mut ListState, name_change : bool, age_shift : i8) -> Result<(), Error> {
+fn edit_pet_at_index(
+    pet_list_state: &mut ListState,
+    name_change: Option<String>,
+    age_shift: i8,
+    pet_list: &mut [Pet],
+) -> Result<(), Error> {
     if let Some(selected) = pet_list_state.selected() {
         let db_content = fs::read_to_string(DB_PATH)?;
         let mut parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
-        let rng = rand::thread_rng();
-        if name_change {
-            let new_name = rng.sample_iter(Alphanumeric).take(10).collect();
-            parsed[selected].name = new_name;
+        if let Some(new_name) = name_change {
+            parsed[selected].name = new_name.clone();
+            pet_list[selected].name = new_name;
         }
-        if age_shift > 0 {
-            parsed[selected].age += age_shift as usize;
-        } else if age_shift < 0 {
-            parsed[selected].age = std::cmp::max(0,(parsed[selected].age as i8)+age_shift) as usize;
+        match age_shift {
+            z if z > 0 => {
+                parsed[selected].age += z as usize;
+                pet_list[selected].age = parsed[selected].age;
+            }
+            w if w < 0 => {
+                parsed[selected].age = std::cmp::max(0, (parsed[selected].age as i8) + w) as usize;
+                pet_list[selected].age = parsed[selected].age;
+            }
+            _ => {}
         }
         fs::write(DB_PATH, serde_json::to_vec(&parsed)?)?;
         let _amount_pets = read_db().expect("can fetch pet list").len();
