@@ -119,6 +119,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/c", "cls"])
+            .spawn()
+            .expect("cls command failed to start")
+            .wait()
+            .expect("failed to wait");
+    } else {        
+        std::process::Command::new("clear")
+            .spawn()
+            .expect("clear command failed to start")
+            .wait()
+            .expect("failed to wait");
+    };
+
     Ok(())
 }
 
