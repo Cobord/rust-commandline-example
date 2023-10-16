@@ -9,6 +9,7 @@ use data_row::{DataRow, Aged};
 
 mod pet;
 use pet::Pet;
+mod child;
 
 mod generic_tui;
 use generic_tui::*;

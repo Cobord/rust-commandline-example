@@ -2,9 +2,9 @@ use chrono::prelude::*;
 use rand::{distributions::Alphanumeric, prelude::*};
 use serde::{Deserialize, Serialize};
 use tui::{
-    style::{Modifier, Style},
+    style::{Modifier, Style, Color},
     text::{Span, Spans},
-    widgets::{Cell, Row, Table},
+    widgets::{Cell, Row, Table, Block, Borders, BorderType}, layout::Constraint,
 };
 
 use crate::data_row::{DataRow, Aged};
@@ -28,25 +28,6 @@ impl DataRow for Child {
 
     fn menu_titles() -> Vec<&'static str> {
         vec!["Home", "Children", "Add", "Edit Name", "Delete", "Quit"]
-    }
-
-    fn home_char() -> char {
-        'h'
-    }
-    fn quit_char() -> char {
-        'q'
-    }
-    fn data_char() -> char {
-        'c'
-    }
-    fn add_char() -> char {
-        'a'
-    }
-    fn del_char() -> char {
-        'd'
-    }
-    fn edit_char() -> char {
-        'e'
     }
 
     fn title() -> &'static str {
@@ -100,6 +81,19 @@ impl DataRow for Child {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
         ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::White))
+                .title("Detail")
+                .border_type(BorderType::Plain),
+        )
+        .widths(&[
+            Constraint::Percentage(10),
+            Constraint::Percentage(25),
+            Constraint::Percentage(10),
+            Constraint::Percentage(25),
+        ])
     }
 
     fn create_placeholder() -> Self {
