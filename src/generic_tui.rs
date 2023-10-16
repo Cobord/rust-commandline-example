@@ -15,8 +15,18 @@ use tui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Table, Tabs},
     Terminal,
 };
-
+use thiserror::Error;
 use crate::data_row::DataRow;
+
+pub const DB_PATH: &str = "./data/db.json";
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("error reading the DB file: {0}")]
+    ReadDBError(#[from] io::Error),
+    #[error("error parsing the DB file: {0}")]
+    ParseDBError(#[from] serde_json::Error),
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum MenuItem {
@@ -261,8 +271,7 @@ pub fn render_data<'a, T: DataRow>(
                 .selected()
                 .expect(("there is always a selected".to_owned() + T::row_name()).as_str()),
         )
-        .expect("exists")
-        .clone();
+        .expect("exists");
 
     let list = List::new(items).block(data).highlight_style(
         Style::default()
@@ -272,21 +281,7 @@ pub fn render_data<'a, T: DataRow>(
     );
 
     let data_detail = selected_datum
-        .to_table()
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().fg(Color::White))
-                .title("Detail")
-                .border_type(BorderType::Plain),
-        )
-        .widths(&[
-            Constraint::Percentage(5),
-            Constraint::Percentage(20),
-            Constraint::Percentage(20),
-            Constraint::Percentage(5),
-            Constraint::Percentage(20),
-        ]);
+        .to_table();
 
     (list, data_detail)
 }

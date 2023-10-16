@@ -1,28 +1,17 @@
 use crossterm::event::KeyCode;
 use rand::{distributions::Alphanumeric, prelude::*};
 use std::fs;
-use std::io;
-use thiserror::Error;
+
 use tui::widgets::ListState;
 
 mod data_row;
-use data_row::DataRow;
+use data_row::{DataRow, Aged};
 
 mod pet;
 use pet::Pet;
 
 mod generic_tui;
 use generic_tui::*;
-
-pub const DB_PATH: &str = "./data/db.json";
-
-#[derive(Error, Debug)]
-enum Error {
-    #[error("error reading the DB file: {0}")]
-    ReadDBError(#[from] io::Error),
-    #[error("error parsing the DB file: {0}")]
-    ParseDBError(#[from] serde_json::Error),
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (rx, _join_handle) = io_handler();
@@ -82,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 KeyCode::Char('e') => {
                     if let Some(selected) = pet_list_state.selected() {
-                        let mut new_name = String::new();
+                        let mut new_name = String::with_capacity(8);
                         let change_loaded = |pet_list: &mut [Pet], idx: usize, new_str: &str| {
                             pet_list[idx].name = new_str.to_string()
                         };
@@ -180,17 +169,17 @@ fn edit_pet_at_index(
         let db_content = fs::read_to_string(DB_PATH)?;
         let mut parsed: Vec<Pet> = serde_json::from_str(&db_content)?;
         if let Some(new_name) = name_change {
-            parsed[selected].name = new_name.clone();
-            pet_list[selected].name = new_name;
+            parsed[selected].set_name(new_name.clone());
+            pet_list[selected].set_name(new_name);
         }
         match age_shift {
             z if z > 0 => {
-                parsed[selected].age += z as usize;
-                pet_list[selected].age = parsed[selected].age;
+                parsed[selected].incr_age(z as u8);
+                pet_list[selected].set_age(parsed[selected].age());
             }
             w if w < 0 => {
-                parsed[selected].age = std::cmp::max(0, (parsed[selected].age as i8) + w) as usize;
-                pet_list[selected].age = parsed[selected].age;
+                parsed[selected].decr_age((-w) as u8);
+                pet_list[selected].set_age(parsed[selected].age());
             }
             _ => {}
         }
