@@ -5,7 +5,7 @@ use std::fs;
 use tui::widgets::ListState;
 
 mod data_row;
-use data_row::{DataRow, Aged};
+use data_row::{Aged, DataRow};
 
 mod pet;
 use pet::Pet;
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("cls command failed to start")
             .wait()
             .expect("failed to wait");
-    } else {        
+    } else {
         std::process::Command::new("clear")
             .spawn()
             .expect("clear command failed to start")

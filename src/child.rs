@@ -2,12 +2,13 @@ use chrono::prelude::*;
 use rand::{distributions::Alphanumeric, prelude::*};
 use serde::{Deserialize, Serialize};
 use tui::{
-    style::{Modifier, Style, Color},
+    layout::Constraint,
+    style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Cell, Row, Table, Block, Borders, BorderType}, layout::Constraint,
+    widgets::{Block, BorderType, Borders, Cell, Row, Table},
 };
 
-use crate::data_row::{DataRow, Aged};
+use crate::data_row::{Aged, DataRow};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Child {
@@ -22,7 +23,7 @@ impl DataRow for Child {
         self.name.clone()
     }
 
-    fn set_name<T : Into<String>>(&mut self, new_name: T) {
+    fn set_name<T: Into<String>>(&mut self, new_name: T) {
         self.name = new_name.into();
     }
 
@@ -112,7 +113,7 @@ impl Aged for Child {
         self.age
     }
 
-    fn set_age<T : Into<u8>>(&mut self,new_age: T) {
+    fn set_age<T: Into<u8>>(&mut self, new_age: T) {
         self.age = new_age.into();
     }
 }

@@ -1,3 +1,4 @@
+use crate::data_row::DataRow;
 use crossterm::{
     event::{self, Event as CEvent, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -7,20 +8,19 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::{sync::mpsc::Receiver, thread::JoinHandle};
+use thiserror::Error;
 use tui::{
-    backend::CrosstermBackend,
+    backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Table, Tabs},
     Terminal,
 };
-use thiserror::Error;
-use crate::data_row::DataRow;
 
 pub const DB_PATH: &str = "./data/db.json";
 
-pub type WhichRow = usize;
+pub(crate) type WhichRow = usize;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -31,7 +31,7 @@ pub enum Error {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum MenuItem {
+pub(crate) enum MenuItem {
     Home,
     Data,
 }
@@ -50,7 +50,7 @@ pub enum Event<I> {
     Tick,
 }
 
-pub fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
+pub(crate) fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
     enable_raw_mode().expect("can run in raw mode");
     let (tx, rx) = mpsc::channel();
     let tick_rate = Duration::from_millis(200);
@@ -79,7 +79,7 @@ pub fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
     (rx, jh)
 }
 
-pub fn get_terminal(
+pub(crate) fn get_terminal(
 ) -> Result<Terminal<CrosstermBackend<std::io::Stdout>>, Box<dyn std::error::Error>> {
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
@@ -88,14 +88,14 @@ pub fn get_terminal(
     Ok(terminal)
 }
 
-pub fn get_data_list_state() -> ListState {
+pub(crate) fn get_data_list_state() -> ListState {
     let mut data_list_state = ListState::default();
     data_list_state.select(Some(0));
     data_list_state
 }
 
-pub fn tui_cleanup(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+pub(crate) fn tui_cleanup<B: Backend>(
+    terminal: &mut Terminal<B>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     disable_raw_mode()?;
     terminal.clear()?;
@@ -103,8 +103,8 @@ pub fn tui_cleanup(
     Ok(())
 }
 
-pub fn render<T: DataRow>(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+pub(crate) fn render<T: DataRow, B: Backend>(
+    terminal: &mut Terminal<B>,
     menu_titles: &[&str],
     active_menu_item: MenuItem,
     data_list_state: &mut ListState,
@@ -178,12 +178,12 @@ pub fn render<T: DataRow>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn word_input<T: DataRow>(
+pub(crate) fn word_input<T: DataRow, B: Backend>(
     rx: &Receiver<Event<event::KeyEvent>>,
     new_name: &mut String,
     loaded_data: &mut [T],
     selected: WhichRow,
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    terminal: &mut Terminal<B>,
     menu_titles: &[&str],
     active_menu_item: MenuItem,
     data_list_state: &mut ListState,
@@ -221,7 +221,7 @@ pub fn word_input<T: DataRow>(
     Ok(())
 }
 
-pub fn render_home<'a, T: DataRow>() -> Paragraph<'a> {
+pub(crate) fn render_home<'a, T: DataRow>() -> Paragraph<'a> {
     let mut welcome_part = vec![
         Spans::from(vec![Span::raw("")]),
         Spans::from(vec![Span::raw("Welcome")]),
@@ -247,7 +247,7 @@ pub fn render_home<'a, T: DataRow>() -> Paragraph<'a> {
     home
 }
 
-pub fn render_data<'a, T: DataRow>(
+pub(crate) fn render_data<'a, T: DataRow>(
     data_list_state: &ListState,
     data_list: &'a [T],
 ) -> (List<'a>, Table<'a>) {
@@ -282,8 +282,7 @@ pub fn render_data<'a, T: DataRow>(
             .add_modifier(Modifier::BOLD),
     );
 
-    let data_detail = selected_datum
-        .to_table();
+    let data_detail = selected_datum.to_table();
 
     (list, data_detail)
 }
