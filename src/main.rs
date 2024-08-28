@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 KeyCode::Char('e') => {
                     if let Some(selected) = pet_list_state.selected() {
                         let mut new_name = String::with_capacity(8);
-                        let change_loaded = |pet_list: &mut [Pet], idx: usize, new_str: &str| {
+                        let change_loaded = |pet_list: &mut [Pet], idx: WhichRow, new_str: &str| {
                             pet_list[idx].name = new_str.to_string()
                         };
                         word_input(

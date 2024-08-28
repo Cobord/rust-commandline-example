@@ -20,6 +20,8 @@ use crate::data_row::DataRow;
 
 pub const DB_PATH: &str = "./data/db.json";
 
+pub type WhichRow = usize;
+
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("error reading the DB file: {0}")]
@@ -67,7 +69,7 @@ pub fn io_handler() -> (Receiver<Event<event::KeyEvent>>, JoinHandle<()>) {
             }
 
             if last_tick.elapsed() >= tick_rate {
-                #[allow(clippy:collapsible_if)]
+                #[allow(clippy::collapsible_if)]
                 if tx.send(Event::Tick).is_ok() {
                     last_tick = Instant::now();
                 }
@@ -180,12 +182,12 @@ pub fn word_input<T: DataRow>(
     rx: &Receiver<Event<event::KeyEvent>>,
     new_name: &mut String,
     loaded_data: &mut [T],
-    selected: usize,
+    selected: WhichRow,
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     menu_titles: &[&str],
     active_menu_item: MenuItem,
     data_list_state: &mut ListState,
-    change_loaded: fn(&mut [T], usize, &str),
+    change_loaded: fn(&mut [T], WhichRow, &str),
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         match rx.recv()? {
